@@ -48,13 +48,13 @@ int handle_rx(char *buf, int bufsize) {
 		return -1;
 	}
 	//Just printing everything
-	printf("Http Method %s\n",request->http_method);
-	printf("Http Version %s\n",request->http_version);
-	printf("Http Uri %s\n",request->http_uri);
-	printf("number of Request Headers %d\n", request->header_count);
+	// printf("Http Method %s\n",request->http_method);
+	// printf("Http Version %s\n",request->http_version);
+	// printf("Http Uri %s\n",request->http_uri);
+	// printf("number of Request Headers %d\n", request->header_count);
 	for(index = 0;index < request->header_count;index++){
-		printf("Request Header\n");
-		printf("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+		// printf("Request Header\n");
+		// printf("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
 	}
 	free(request->headers);
 	free(request);
@@ -77,8 +77,6 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 	int listen_port = atoi(argv[1]);
-
-    fprintf(stdout, "----- Echo Server -----\n");
     
     /* all networked programs must create a socket */
     if ((listen_sock = socket(PF_INET, SOCK_STREAM, 0)) == -1)
@@ -108,7 +106,7 @@ int main(int argc, char* argv[])
 	FD_ZERO(&master_set);
 	FD_ZERO(&tenp_set);
 
-    if (listen(listen_sock, 5))
+    if (listen(listen_sock, 1000))
     {
         close_socket(listen_sock);
         fprintf(stderr, "Error listening on socket.\n");
@@ -118,6 +116,7 @@ int main(int argc, char* argv[])
 	// add it to the master set and set range
 	FD_SET(listen_sock, &master_set);
 	fdrange = listen_sock;
+
 
 	while(1) {
 
@@ -161,9 +160,9 @@ int main(int argc, char* argv[])
 
 					if((readret = recv(i, buf, BUF_SIZE, 0)) >= 1)
 					{
-						printf("recieved data\n");
-						write(STDOUT_FILENO, buf, readret);
-						printf("\n");
+						// printf("recieved data\n");
+						// write(STDOUT_FILENO, buf, readret);
+						// printf("\n");
 						// handle data from client
 						if(handle_rx(buf, readret) < 0) {
 							// request is malformed
@@ -174,8 +173,11 @@ int main(int argc, char* argv[])
 								fprintf(stderr, "Error sending to client.\n");
 								return EXIT_FAILURE;
 							}
-							printf("sent bad request\n");
+							// printf("sent bad request\n");
 						} else {
+							// printf("echoing request back\n");
+							// write(STDOUT_FILENO, buf, readret);
+							// printf("\n");
 							if (send(i, buf, readret, 0) != readret)
 							{
 								close_socket(i);
@@ -183,8 +185,6 @@ int main(int argc, char* argv[])
 								fprintf(stderr, "Error sending to client.\n");
 								return EXIT_FAILURE;
 							}
-							printf("echoing request back\n");
-							
 						}
 					} else {
 						// client connection closed

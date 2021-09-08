@@ -7,7 +7,7 @@
 #define _PARSE_H_
 
 #define SUCCESS 0
-# define YYDEBUG 1
+//# define YYDEBUG 1
 // int yydebug = STDOUT_FILENO;
 
 //Header field

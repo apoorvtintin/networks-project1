@@ -25,9 +25,9 @@ if numConnections < numWritesReads:
 socketList = []
 
 RECV_TOTAL_TIMEOUT = 0.1
-#RECV_EACH_TIMEOUT = 0.01
+RECV_EACH_TIMEOUT = 0.01
 
-RECV_EACH_TIMEOUT = 1
+#RECV_EACH_TIMEOUT = 1
 
 for i in xrange(numConnections):
     s = socket(AF_INET, SOCK_STREAM)
@@ -36,14 +36,27 @@ for i in xrange(numConnections):
 
 
 GOOD_REQUESTS = [
-                'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
+                # 'GET / HTTP/1.1\r\n\r\n',
+                # 'GET / HTTP/1.1\r\n\r\n\r\n\r\n',
+                # 'GET / HTTP/1.1\r\n\r\n\r\n',
+                #'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
                 #'GET / HTTP/1.1\r\nUser-Agent: blablabla\r\n blablabla\r\n blablabla\r\n HiIAmANewLine\r\n\r\n',
+                'GET /~prs/15-441-F15/ HTTP/1.1\r\nHost: www.cs.cmu.edu\r\nConnection: keep-alive\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.99 Safari/537.36\r\nAccept-Encoding: gzip, deflate, sdch\r\nAccept-Language: en-US,en;q=0.8\r\n\r\n',
 ]
 BAD_REQUESTS = [
-    'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
-    'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
-    'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
-    '\r\nGET / HTTP/1.1\r\nUser-Agent: blablabla\r\nblablabla\r\nblablabla\r\n HiIAmANewLine\r\n\r\n', #from recitation
+    # 'GET /\r HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    # 'GET / HTTP/1.1\r\nUser-Agent: \r441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    # 'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    # 'GET\n / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra tab
+    # '\nGET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    # 'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\n\r\n\r\n', # Extra CR
+    # 'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
+    # 'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
+    # # 'GET / HTTP/1.1\r\nUser-Agent: \r\n\r\n',     # Incomplete header
+    # 'GET / HTTP/\r\n\r\n',     # Incomplete request line
+    # 'GET / HTT\r\n\r\n',     # Incomplete request line
+    # '\r\nGET / HTTP/1.1\r\nUser-Agent: blablabla\r\nblablabla\r\nblablabla\r\n HiIAmANewLine\r\n\r\n', #from recitation
+    # 'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
 ]
 
 BAD_REQUEST_RESPONSE = 'HTTP/1.1 400 Bad Request\r\n\r\n'
@@ -79,6 +92,7 @@ for i in xrange(numTrials):
                 break
         if data != randomData[j]:
             sys.stderr.write("Error: Data received is unexpected! \n")
+            print("expected ", randomData[j], "recieved so far ",  data)
             sys.exit(1)
 
 for i in xrange(numConnections):

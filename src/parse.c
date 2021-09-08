@@ -8,9 +8,9 @@
 * Given a char buffer returns the parsed request headers
 */
 Request * parse(char *buffer, int size, int socketFd) {
-	printf("inside parse\n");
-	write(STDOUT_FILENO, buffer, size);
-	printf("done\n");
+	// printf("inside parse\n");
+	// write(STDOUT_FILENO, buffer, size);
+	// printf("done\n");
 
 	//Differant states in the state machine
 	enum {
@@ -57,13 +57,13 @@ Request * parse(char *buffer, int size, int socketFd) {
     //Valid End State
 	if (state == STATE_CRLFCRLF) {
 
-		printf("going to yacc\n");
-		write(STDOUT_FILENO, buf, i);
-		printf("done\n");
+		// printf("going to yacc\n");
+		// write(STDOUT_FILENO, buf, i);
+		// printf("done\n");
 		Request *request = (Request *) malloc(sizeof(Request));
         request->header_count=0;
         //TODO You will need to handle resizing this in parser.y
-        request->headers = (Request_header *) malloc(sizeof(Request_header)*512);
+        request->headers = (Request_header *) malloc(sizeof(Request_header));
 
 		assert(request->headers != NULL);
 		set_parsing_options(buf, i, request);
