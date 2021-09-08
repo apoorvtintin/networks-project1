@@ -36,14 +36,14 @@ for i in xrange(numConnections):
 
 
 GOOD_REQUESTS = [
-                #'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
-                'GET / HTTP/1.1\r\nUser-Agent: blablabla\r\n blablabla\r\n blablabla\r\n HiIAmANewLine\r\n\r\n',
+                'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
+                #'GET / HTTP/1.1\r\nUser-Agent: blablabla\r\n blablabla\r\n blablabla\r\n HiIAmANewLine\r\n\r\n',
 ]
 BAD_REQUESTS = [
-    #'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
-    #'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
-    #'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
-    #'\r\nGET / HTTP/1.1\r\nUser-Agent: blablabla\r\nblablabla\r\nblablabla\r\n HiIAmANewLine\r\n\r\n', #from recitation
+    'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
+    'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
+    '\r\nGET / HTTP/1.1\r\nUser-Agent: blablabla\r\nblablabla\r\nblablabla\r\n HiIAmANewLine\r\n\r\n', #from recitation
 ]
 
 BAD_REQUEST_RESPONSE = 'HTTP/1.1 400 Bad Request\r\n\r\n'
