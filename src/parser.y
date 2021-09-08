@@ -8,7 +8,7 @@
 #include "parse.h"
 
 /* Define YACCDEBUG to enable debug messages for this lex file */
-//#define YACCDEBUG
+#define YACCDEBUG
 #define YYERROR_VERBOSE
 #ifdef YACCDEBUG
 #include <stdio.h>
@@ -211,6 +211,9 @@ request_header: token ows t_colon ows text ows t_crlf {
 	parsing_request->header_count++;
 };
 
+header:  t_crlf | request_header header {
+	YPRINTF("Found header, total headers %d \n", parsing_request->header_count);
+};
 
 /*
  * You need to fill this rule, and you are done! You have all the assembly
@@ -218,7 +221,7 @@ request_header: token ows t_colon ows text ows t_crlf {
  * All the best!
  *
  */
-request: request_line request_header t_crlf{
+request: request_line header {
 	YPRINTF("parsing_request: Matched Success.\n");
 	return SUCCESS;
 };

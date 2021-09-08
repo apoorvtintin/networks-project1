@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include "parse.h"
 
+// #define YYDEBUG 1
+int yydebug = STDOUT_FILENO;
+
 int main(int argc, char **argv){
   //Read from the file the sample
   int fd_in = open(argv[1], O_RDONLY);
@@ -19,16 +22,24 @@ int main(int argc, char **argv){
   int readRet = read(fd_in,buf,8192);
   //Parse the buffer to the parse function. You will need to pass the socket fd and the buffer would need to
   //be read from that fd
-  Request *request = parse(buf,readRet,fd_in);
-  //Just printing everything
-  printf("Http Method %s\n",request->http_method);
-  printf("Http Version %s\n",request->http_version);
-  printf("Http Uri %s\n",request->http_uri);
-  for(index = 0;index < request->header_count;index++){
-    printf("Request Header\n");
-    printf("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+  for(int i = 0; i < 10; i++) {
+    Request *request = parse(buf,readRet,fd_in);
+
+    if(request != NULL) {
+      //Just printing everything
+      printf("Http Method %s\n",request->http_method);
+      printf("Http Version %s\n",request->http_version);
+      printf("Http Uri %s\n",request->http_uri);
+      printf("number of Request Headers %d\n", request->header_count);
+      for(index = 0;index < request->header_count;index++){
+        printf("Request Header\n");
+        printf("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+      }
+      free(request->headers);
+      free(request);
+    } else {
+      printf("Parse Failed\n");
+    }
   }
-  free(request->headers);
-  free(request);
   return 0;
 }

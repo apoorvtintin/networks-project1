@@ -25,7 +25,9 @@ if numConnections < numWritesReads:
 socketList = []
 
 RECV_TOTAL_TIMEOUT = 0.1
-RECV_EACH_TIMEOUT = 0.01
+#RECV_EACH_TIMEOUT = 0.01
+
+RECV_EACH_TIMEOUT = 1
 
 for i in xrange(numConnections):
     s = socket(AF_INET, SOCK_STREAM)
@@ -33,11 +35,15 @@ for i in xrange(numConnections):
     socketList.append(s)
 
 
-GOOD_REQUESTS = ['GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n']
+GOOD_REQUESTS = [
+                #'GET / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',
+                'GET / HTTP/1.1\r\nUser-Agent: blablabla\r\n blablabla\r\n blablabla\r\n HiIAmANewLine\r\n\r\n',
+]
 BAD_REQUESTS = [
-    'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
-    'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
-    'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
+    #'GET\r / HTTP/1.1\r\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n', # Extra CR
+    #'GET / HTTP/1.1\nUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing CR
+    #'GET / HTTP/1.1\rUser-Agent: 441UserAgent/1.0.0\r\n\r\n',     # Missing LF
+    #'\r\nGET / HTTP/1.1\r\nUser-Agent: blablabla\r\nblablabla\r\nblablabla\r\n HiIAmANewLine\r\n\r\n', #from recitation
 ]
 
 BAD_REQUEST_RESPONSE = 'HTTP/1.1 400 Bad Request\r\n\r\n'
@@ -53,10 +59,12 @@ for i in xrange(numTrials):
             random_string = GOOD_REQUESTS[random_index]
             randomLen.append(len(random_string))
             randomData.append(random_string)
+            print("sent good request", random_string, len(random_string), "done")
         else:
             random_string = BAD_REQUESTS[random_index - len(GOOD_REQUESTS)]
             randomLen.append(len(BAD_REQUEST_RESPONSE))
             randomData.append(BAD_REQUEST_RESPONSE)
+            print("sent bad request" , random_string, len(random_string), "done")
         socketSubset[j].send(random_string)
 
     for j in xrange(numWritesReads):
