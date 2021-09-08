@@ -61,6 +61,8 @@ int handle_rx(char *buf, int bufsize) {
 	return 0;
 }
 
+
+
 int main(int argc, char* argv[])
 {
     int listen_sock, client_sock;
@@ -69,6 +71,12 @@ int main(int argc, char* argv[])
     struct sockaddr_in addr, cli_addr;
     char buf[BUF_SIZE];
 	int yes=1;
+
+	if(argc < 2) {
+		fprintf(stderr, "Failed creating socket.\n");
+		return -1;
+	}
+	int listen_port = atoi(argv[1]);
 
     fprintf(stdout, "----- Echo Server -----\n");
     
@@ -80,7 +88,7 @@ int main(int argc, char* argv[])
     }
 
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(LISTEN_PORT);
+    addr.sin_port = htons(listen_port);
     addr.sin_addr.s_addr = INADDR_ANY;
 
 	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
