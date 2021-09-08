@@ -1,16 +1,25 @@
+/**
+ * @file parse.c
+ * @author Apoorv Gupta <apoorvgu@andrew.cmu.edu>
+ * @brief Implementation of the parsing component of LISO
+ * @version 0.1
+ * @date 2021-09-08
+ * 
+ * @copyright Copyright (c) 2021
+ * 
+ */
+
 #include "parse.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "lisodebug.h"
 
 /**
 * Given a char buffer returns the parsed request headers
 */
 Request * parse(char *buffer, int size, int socketFd) {
-	// printf("inside parse\n");
-	// write(STDOUT_FILENO, buffer, size);
-	// printf("done\n");
 
 	//Differant states in the state machine
 	enum {
@@ -57,9 +66,6 @@ Request * parse(char *buffer, int size, int socketFd) {
     //Valid End State
 	if (state == STATE_CRLFCRLF) {
 
-		// printf("going to yacc\n");
-		// write(STDOUT_FILENO, buf, i);
-		// printf("done\n");
 		Request *request = (Request *) malloc(sizeof(Request));
         request->header_count=0;
         //TODO You will need to handle resizing this in parser.y
@@ -74,8 +80,8 @@ Request * parse(char *buffer, int size, int socketFd) {
 
 		yyrestart(NULL);
 	}
-    //TODO Handle Malformed Requests
-    printf("Parsing Failed\n");
+
+    LISOPRINTF("Parsing Failed\n");
 	return NULL;
 }
 

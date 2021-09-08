@@ -1,3 +1,13 @@
+/**
+ * @file parse.h
+ * @author Apoorv Gupta <apoorvgu@andrew.cmu.edu>
+ * @brief Header for parsing component of LISO
+ * @version 0.1
+ * @date 2021-09-08
+ * 
+ * @copyright Copyright (c) 2021
+ * 
+ */
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +17,6 @@
 #define _PARSE_H_
 
 #define SUCCESS 0
-//# define YYDEBUG 1
-// int yydebug = STDOUT_FILENO;
 
 //Header field
 typedef struct
