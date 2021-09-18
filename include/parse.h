@@ -23,7 +23,7 @@ typedef struct
 {
 	char header_name[4096];
 	char header_value[4096];
-} Request_header;
+} Http_header;
 
 //HTTP Request Header
 typedef struct
@@ -31,9 +31,19 @@ typedef struct
 	char http_version[50];
 	char http_method[50];
 	char http_uri[4096];
-	Request_header *headers;
+	Http_header *headers;
 	int header_count;
 } Request;
+
+typedef struct {
+	char http_version[50];
+	char http_status_reason[4096];
+	Http_header *headers;
+	int header_count;
+	int header_allocated;
+	int message_len;
+	char *message;
+} Response;
 
 Request* parse(char *buffer, int size,int socketFd);
 

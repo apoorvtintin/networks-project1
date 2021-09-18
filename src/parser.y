@@ -204,17 +204,17 @@ request_line: token t_sp text t_sp text t_crlf {
 	strcpy(parsing_request->http_version, $5);
 }
 
-request_header: token ows t_colon ows text ows t_crlf {
+Http_header: token ows t_colon ows text ows t_crlf {
 	if(parsing_request->header_count > 0) {
-		parsing_request->headers = realloc(parsing_request->headers, sizeof(Request_header) * (parsing_request->header_count + 1));
+		parsing_request->headers = realloc(parsing_request->headers, sizeof(Http_header) * (parsing_request->header_count + 1));
 	}
-	YPRINTF("request_Header:\n%s\n%s\n",$1,$5);
+	YPRINTF("Http_header:\n%s\n%s\n",$1,$5);
     strcpy(parsing_request->headers[parsing_request->header_count].header_name, $1);
 	strcpy(parsing_request->headers[parsing_request->header_count].header_value, $5);
 	parsing_request->header_count++;
 };
 
-header:  t_crlf | request_header header {
+header:  t_crlf | Http_header header {
 	YPRINTF("Found header, total headers %d \n", parsing_request->header_count);
 };
 

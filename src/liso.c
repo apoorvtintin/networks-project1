@@ -21,15 +21,10 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "liso.h"
 #include "parse.h"
-#include "lisodebug.h"
 
-// MACROS
-#define BUF_SIZE 4096				// size of Liso Buffer 
-#define BAD_REQUEST_SIZE 28			// size of a bad request error 400
-
-// bad request response
-const char bad_request[] = {"HTTP/1.1 400 Bad Request\r\n\r\n"};
+char LISO_PATH[PATH_MAX];
 
 /**
  * @brief Print buffer
@@ -148,6 +143,8 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
 	return listen_sock;
 }
 
+
+
 /**
  * @brief generate reply for the request recieved and send appropriate 
  * response
@@ -161,6 +158,17 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
 int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
 	LISOPRINTF("echoing request back\n");
 	print_req_buf(buf, bufsize);
+	
+	if(strncmpi(req->http_method, GET, strlen(GET))) {
+
+	} else if(strncmpi(req->http_method, HEAD, strlen(HEAD))) {
+
+	} else if (strncmpi(req->http_method, POST, strlen(POST))) {
+
+	} else {
+		// invalid request
+	}
+	
 	if (send(client_socket, buf, bufsize, 0) != bufsize)
 	{
 		fprintf(stderr, "Error sending to client.\n");
@@ -183,6 +191,20 @@ int send_bad_request_response(int client_socket) {
 		return -1;
 	}
 	return 0;
+}
+
+int init_liso_storage() {
+	// initialise LISO path
+	if(readlink("/proc/self/exe", LISO_PATH, PATH_MAX)) {
+		perror("readlink");
+		return LISO_LOAD_FAILED;
+	} else {
+		LISOPRINTF("absolute path of liso is %s", LISO_PATH);
+		snprintf(LISO_PATH + strlen(LISO_PATH), PATH_MAX - strlen(LISO_PATH), "/%s/", "static_site");
+		LISOPRINTF("final storage path is %s")
+	}
+
+	return LISO_SUCCESS;
 }
 
 /**
@@ -215,6 +237,12 @@ int main(int argc, char* argv[])
 
 	if((listen_sock = initialize_listen_socket(listen_port, &addr)) < 0) {
 		fprintf(stderr, "Initialize of listen socket failed.\n");
+		return -1;
+	}
+
+	if(init_liso_storage() != LISO_SUCCESS) {
+		// storage init fail
+		LISOPRINTF("Liso storage init failed");
 		return -1;
 	}
 
