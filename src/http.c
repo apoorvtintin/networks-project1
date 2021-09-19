@@ -96,7 +96,7 @@ const char STATUS_200[] = {"200 OK"};
 // liso storage Path
 extern char LISO_PATH[PATH_MAX];
 
-int add_header(Response *resp, char* name, char* value) {
+int add_header(Response *resp, const char* name, const char* value) {
 	assert(name != NULL);
 	assert(value != NULL);
 	assert(resp != NULL);
@@ -131,7 +131,7 @@ int add_time(Response *resp) {
 	char buf[1000];
 	time_t now = time(0);
 	struct tm tm = *gmtime(&now);
-	size_t dt_size = strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+	strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
 
 	return add_header(resp, DATE_HEADER, buf);
 }
@@ -141,7 +141,7 @@ int add_last_modified(Response *resp, struct timespec *tv) {
 	char buf[1000];
 	time_t now = (time_t)tv->tv_sec;
 	struct tm tm = *gmtime(&now);
-	size_t dt_size = strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+	strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
 
 	return add_header(resp, LAST_MODIFIED_HEADER, buf);
 }
@@ -153,7 +153,7 @@ int add_mime_extension(char *path, Response *resp) {
 	strncpy(extension, pch, 10);
 
 	for(int i = 0; TYPES[i] != NULL; i++) {
-		if(strcmpi(extension, TYPES[i], strlen(TYPES[i]))) {
+		if(strncasecmp(extension, TYPES[i], strlen(TYPES[i]))) {
 			// matching MIME extension found
 			return add_header(resp, MIME_HEADER, MIME[i]);
 			
@@ -203,9 +203,11 @@ int generate_error_response(Response *resp, int error) {
 		strncpy(resp->http_status_reason, STATUS_400, strlen(STATUS_400));
 		break;
 	}
+
+	return LISO_SUCCESS;
 }
 
-int populate_basic_reponse(Response *resp) {
+int populate_basic_response(Response *resp) {
 
 	assert(resp != NULL);
 
@@ -258,7 +260,7 @@ int load_uri(Request *req, Response *resp) {
 	fclose(fp);
 
 	add_content_length(resp, sfile.st_size);
-	add_last_modified(resp, &sfile.st_mtimespec);
+	add_last_modified(resp, &sfile.st_mtim);
 
 	return LISO_SUCCESS;
 }
@@ -272,11 +274,12 @@ Response* process_get(Request *req) {
 	resp->header_count = 0;
 	int error;
 
-	error = load_uri(req, &resp);
+	error = load_uri(req, resp);
 	if(error != LISO_SUCCESS) {
-		return generate_error_response(resp, error);
+		int err_err = generate_error_response(resp, error);
+		assert(err_err == LISO_SUCCESS);
 	} else {
-		populate_basic_response(&resp);
+		populate_basic_response(resp);
 	}
 
 	return resp;
@@ -304,7 +307,9 @@ Response* process_error(int error) {
 
 	assert(resp != NULL);
 
-	return generate_error_response(resp, error);
+	int err = generate_error_response(resp, error);
+	assert(err == LISO_SUCCESS);
+	return resp;
 }
 
 char* convert_response_to_byte_stream(Response *resp, int *bufsize) {
@@ -350,11 +355,11 @@ char* generate_error(int error, int *resp_size) {
 char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size) {
 	Response *resp;
 
-	if(strncmpi(req->http_method, GET, strlen(GET))) {
+	if(strncasecmp(req->http_method, GET, strlen(GET))) {
 		resp = process_get(req);
-	} else if(strncmpi(req->http_method, HEAD, strlen(HEAD))) {
+	} else if(strncasecmp(req->http_method, HEAD, strlen(HEAD))) {
 		resp = process_head(req);
-	} else if (strncmpi(req->http_method, POST, strlen(POST))) {
+	} else if (strncasecmp(req->http_method, POST, strlen(POST))) {
 		// special case for now
 		*resp_size = bufsize;
 		return buf;

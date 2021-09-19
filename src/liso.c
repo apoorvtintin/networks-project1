@@ -156,9 +156,8 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
  * @return ** int 0 on success, nonzero otherwise 
  */
 int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
-	LISOPRINTF("echoing request back\n");
+	LISOPRINTF("Processing request \n");
 	print_req_buf(buf, bufsize);
-	Response *resp;
 
 	int resp_size;
 	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);

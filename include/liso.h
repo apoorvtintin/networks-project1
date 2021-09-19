@@ -3,6 +3,8 @@
 
 #include "lisodebug.h"
 #include "parse.h"
+#include <assert.h>
+#include <strings.h>
 
 // MACROS
 #define BUF_SIZE 4096				// size of Liso Buffer 
