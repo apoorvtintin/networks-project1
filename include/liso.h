@@ -14,6 +14,13 @@ enum liso_errors {
 	LISO_SUCCESS = 0,
 	LISO_LOAD_FAILED = 1,
 	LISO_MEM_FAIL = 2,
+	LISO_UNSUPPORTED_METHOD = 3,
+	LISO_TIMEOUT =4,
+	LISO_BAD_VERSION_NUMBER=5,
+	LISO_BAD_REQUEST =6,
 };
+
+char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size);
+char* generate_error(int error, int *resp_size);
 
 #endif // _LISO_H_

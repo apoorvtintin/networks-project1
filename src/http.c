@@ -4,6 +4,7 @@
 #include <time.h>
 
 #define SIZE_STRING_BUF_SIZE 50
+
 // 
 const int HEADER_COUNT_INCREMENT =  5;
 
@@ -23,7 +24,6 @@ const char MIME_HEADER[] = {"Content-Type"};
 const char CONTENT_LEN_HEADER[] = {"Content-Length"};
 const char DATE_HEADER[] = {"Date"};
 const char LAST_MODIFIED_HEADER[] = {"Last-Modified"};
-
 
 /**
  * JPEG: image/jpeg
@@ -85,25 +85,16 @@ const int MIME_NUM_TYPES = 8;
  * Everything else can be handled with 400.
  */
 
-const char STATUS_400[] = {"400 Error"};
+const char STATUS_400[] = {"400 Bad Request"};
 const char STATUS_404[] = {"404 Not Found"};
 const char STATUS_408[] = {"408 Connection timeout"};
 const char STATUS_501[] = {"501 Unsupported method"};
 const char STATUS_505[] = {"505 Bad version number"};
 
-const char STATUS_200[] = {"505 OK"};
-
-
+const char STATUS_200[] = {"200 OK"};
 
 // liso storage Path
 extern char LISO_PATH[PATH_MAX];
-
-// extension
-const char pdf[] = {"400 Error"};
-const char text[] = {"404 Not Found"};
-const char STATUS_408[] = {"408 Connection timeout"};
-const char STATUS_501[] = {"501 Unsupported method"};
-const char STATUS_505[] = {"505 Bad version number"};
 
 int add_header(Response *resp, char* name, char* value) {
 	assert(name != NULL);
@@ -155,22 +146,63 @@ int add_last_modified(Response *resp, struct timespec *tv) {
 	return add_header(resp, LAST_MODIFIED_HEADER, buf);
 }
 
-inline get_mime_extension(char *path, Response *resp) {
+int add_mime_extension(char *path, Response *resp) {
 	char *pch=strrchr(path,'.');
 
 	char extension[10];
 	strncpy(extension, pch, 10);
 
-	for(char *i = TYPES[0]; i != NULL; i++) {
-		if(strcmpi(extension, i, strlen(i))) {
+	for(int i = 0; TYPES[i] != NULL; i++) {
+		if(strcmpi(extension, TYPES[i], strlen(TYPES[i]))) {
 			// matching MIME extension found
-
+			return add_header(resp, MIME_HEADER, MIME[i]);
+			
 		}
 	}
+
+	return add_header(resp, MIME_HEADER, Non_descript_data_MIME);
 }
 
-int generate_error_response() {
-return 0;
+int generate_error_response(Response *resp, int error) {
+
+	assert(resp != NULL);
+
+	resp->headers = malloc(sizeof(Http_header) * HEADER_COUNT_INCREMENT);
+
+	if(resp->headers == NULL) {
+		return LISO_MEM_FAIL;
+	}
+
+	resp->header_count = 0;
+	resp->header_allocated = HEADER_COUNT_INCREMENT;
+
+	// populate response line
+	strncpy(resp->http_version, version, strlen(version));
+
+	switch (error)
+	{
+	case LISO_LOAD_FAILED:
+		strncpy(resp->http_status_reason, STATUS_404, strlen(STATUS_404));
+		break;
+	case LISO_UNSUPPORTED_METHOD:
+		strncpy(resp->http_status_reason, STATUS_501, strlen(STATUS_501));
+		break;
+	case LISO_TIMEOUT:
+		strncpy(resp->http_status_reason, STATUS_408, strlen(STATUS_408));
+		break;
+	case LISO_BAD_VERSION_NUMBER:
+		strncpy(resp->http_status_reason, STATUS_505, strlen(STATUS_505));
+		break;
+	case LISO_BAD_REQUEST:
+		strncpy(resp->http_status_reason, STATUS_400, strlen(STATUS_400));
+		break;
+	case LISO_MEM_FAIL:
+		strncpy(resp->http_status_reason, STATUS_400, strlen(STATUS_400));
+		break;
+	default:
+		strncpy(resp->http_status_reason, STATUS_400, strlen(STATUS_400));
+		break;
+	}
 }
 
 int populate_basic_reponse(Response *resp) {
@@ -198,39 +230,6 @@ int populate_basic_reponse(Response *resp) {
 	return LISO_SUCCESS;
 }
 
-Response* process_get(Request *req) {
-
-	Response *resp = malloc(sizeof(Response));
-	resp->header_count = 0;
-	int error;
-
-	populate_basic_response(&resp);
-
-	if((error = load_uri(req, &resp)) != LISO_SUCCESS) {
-		return generate_error_response(error);
-	}
-
-	return resp;
-}
-
-int check_uri(Request *req) {
-
-	size_t buf_space = 4096;
-	char path[PATH_MAX];
-
-	snprintf(path, buf_space, "%s/%s", LISO_PATH, req->http_uri);
-
-	struct stat sfile;
-	int error = stat(path, &sfile);
-
-	if(error == 0) {
-		return LISO_SUCCESS;
-	} else {
-		return LISO_LOAD_FAILED;
-	}
-
-}
-
 int load_uri(Request *req, Response *resp) {
 	size_t buf_space = 4096;
 	char path[PATH_MAX];
@@ -244,7 +243,6 @@ int load_uri(Request *req, Response *resp) {
 		return LISO_LOAD_FAILED;
 	}
 
-	// last modified
 	resp->message_len = sfile.st_size;
 	resp->message = malloc(sfile.st_size);
 
@@ -262,20 +260,36 @@ int load_uri(Request *req, Response *resp) {
 	add_content_length(resp, sfile.st_size);
 	add_last_modified(resp, &sfile.st_mtimespec);
 
+	return LISO_SUCCESS;
+}
 
+Response* process_get(Request *req) {
 
+	Response *resp = malloc(sizeof(Response));
+
+	assert(resp != NULL);
+
+	resp->header_count = 0;
+	int error;
+
+	error = load_uri(req, &resp);
+	if(error != LISO_SUCCESS) {
+		return generate_error_response(resp, error);
+	} else {
+		populate_basic_response(&resp);
+	}
+
+	return resp;
 }
 
 Response* process_head(Request *req) {
 
-	Response *resp = malloc(sizeof(Response));
-	int error;
+	Response *resp = process_get(req);
 
-	populate_basic_response(&resp);
-
-	error = check_uri(req);
-	if(error != LISO_SUCCESS) {
-		return generate_error(error);
+	if(resp->message_len != 0) {
+		free(resp->message);
+		resp->message = NULL;
+		resp->message_len = 0;
 	}
 
 	return resp;
@@ -285,3 +299,71 @@ int process_post(int client_socket, Request *req, char *buf, int bufsize) {
 	return 0;
 }
 
+Response* process_error(int error) {
+	Response *resp = malloc(sizeof(Response));
+
+	assert(resp != NULL);
+
+	return generate_error_response(resp, error);
+}
+
+char* convert_response_to_byte_stream(Response *resp, int *bufsize) {
+	char* resp_buf = malloc(BUF_SIZE);
+	int count = 0;
+
+	memset(resp_buf, 0, BUF_SIZE);
+
+	// response line
+	// HTTP1.1 response line
+	count += snprintf(resp_buf + count, BUF_SIZE - count, 
+	"%s %s\r\n", resp->http_version, resp->http_status_reason);
+
+	// headers
+	for(int i = 0 ; i < resp->header_count; i++) {
+		// header_name: header_value \r\n
+		count += snprintf(resp_buf + count, BUF_SIZE - count, 
+		"%s: %s\r\n", resp->headers[i].header_name, resp->headers[i].header_value);
+	}
+
+	// last CRLF
+	count += snprintf(resp_buf + count, BUF_SIZE - count, "\r\n");
+
+	// message
+	if(resp->message_len > 0) {
+		count += snprintf(resp_buf + count, BUF_SIZE - count, "%s", resp->message);
+	}
+
+	free(resp->headers);
+	free(resp);
+
+	*bufsize = count;
+	return resp_buf;
+}
+
+char* generate_error(int error, int *resp_size) {
+	Response *resp = process_error(error);
+
+	// convert to char array and return char* buffer
+	return convert_response_to_byte_stream(resp, resp_size);
+}
+
+char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size) {
+	Response *resp;
+
+	if(strncmpi(req->http_method, GET, strlen(GET))) {
+		resp = process_get(req);
+	} else if(strncmpi(req->http_method, HEAD, strlen(HEAD))) {
+		resp = process_head(req);
+	} else if (strncmpi(req->http_method, POST, strlen(POST))) {
+		// special case for now
+		*resp_size = bufsize;
+		return buf;
+	} else {
+		// invalid request
+		resp = process_error(LISO_UNSUPPORTED_METHOD);
+	}
+
+	// convert to char array and return char* buffer
+	return convert_response_to_byte_stream(resp, resp_size);
+
+}

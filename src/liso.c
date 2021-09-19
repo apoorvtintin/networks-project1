@@ -158,18 +158,12 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
 int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
 	LISOPRINTF("echoing request back\n");
 	print_req_buf(buf, bufsize);
+	Response *resp;
+
+	int resp_size;
+	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);
 	
-	if(strncmpi(req->http_method, GET, strlen(GET))) {
-
-	} else if(strncmpi(req->http_method, HEAD, strlen(HEAD))) {
-
-	} else if (strncmpi(req->http_method, POST, strlen(POST))) {
-
-	} else {
-		// invalid request
-	}
-	
-	if (send(client_socket, buf, bufsize, 0) != bufsize)
+	if (send(client_socket, resp_buf, resp_size, 0) != resp_size)
 	{
 		fprintf(stderr, "Error sending to client.\n");
 		return -1;
@@ -184,7 +178,11 @@ int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufs
  * @return ** int 0 on success, nonzero otherwise
  */
 int send_bad_request_response(int client_socket) {
-	if (send(client_socket, bad_request, BAD_REQUEST_SIZE, 0) < 0) {
+
+	int resp_size;
+	char* bad_request = generate_error(LISO_BAD_REQUEST, &resp_size);
+
+	if (send(client_socket, bad_request, resp_size, 0) < 0) {
 		
 		fprintf(stderr, "Error sending to client.\n");
 		LISOPRINTF("sent bad request\n");
