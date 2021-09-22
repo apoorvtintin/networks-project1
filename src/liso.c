@@ -23,8 +23,9 @@
 #include <unistd.h>
 #include "liso.h"
 #include "parse.h"
+#include <netinet/tcp.h>
 
-char LISO_PATH[PATH_MAX];
+char LISO_PATH[1024];
 
 /**
  * @brief Print buffer
@@ -37,7 +38,7 @@ void print_req_buf(char *buf, int len) {
 	if(buf == NULL) {
 		return;
 	}
-	LISOPRINTF("recieved data\n");
+	LISOPRINTF("printing buffer of size %d\n", len);
 #ifdef LISODEBUG
 	write(STDOUT_FILENO, buf, len);
 #endif
@@ -74,6 +75,9 @@ Request* handle_rx(char *buf, int bufsize) {
 		return NULL;
 	}
 
+	LISOPRINTF("Printing whole request \n");
+	print_req_buf(buf, bufsize);
+
 	int index;
 	//Parse the buffer to the parse function.
 	Request *request = parse(buf,bufsize,0);
@@ -83,18 +87,15 @@ Request* handle_rx(char *buf, int bufsize) {
 		return NULL;
 	}
 
-	//Print the parsed request for DEBUG
-	LISOPRINTF("Http Method %s\n",request->http_method);
-	LISOPRINTF("Http Version %s\n",request->http_version);
-	LISOPRINTF("Http Uri %s\n",request->http_uri);
-	LISOPRINTF("number of Request Headers %d\n", request->header_count);
-	for(index = 0;index < request->header_count;index++){
-		LISOPRINTF("Request Header\n");
-		LISOPRINTF("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
-	}
-
-	free(request->headers);
-	free(request);
+	// //Print the parsed request for DEBUG
+	// LISOPRINTF("Http Method %s\n",request->http_method);
+	// LISOPRINTF("Http Version %s\n",request->http_version);
+	// LISOPRINTF("Http Uri %s\n",request->http_uri);
+	// LISOPRINTF("number of Request Headers %d\n", request->header_count);
+	// for(index = 0;index < request->header_count;index++){
+	// 	LISOPRINTF("Request Header\n");
+	// 	LISOPRINTF("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+	// }
 
 	// SUCCESS
 	return request;
@@ -124,6 +125,7 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
 
 	int yes=1;
 	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+	setsockopt(listen_sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(int));
 
     /* servers bind sockets to ports---notify the OS they accept connections */
     if (bind(listen_sock, (struct sockaddr*)addr, sizeof(struct sockaddr_in)))
@@ -161,6 +163,10 @@ int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufs
 
 	int resp_size;
 	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);
+
+	// sending reply
+	LISOPRINTF("Sending reply \n");
+	print_req_buf(resp_buf, resp_size);
 	
 	if (send(client_socket, resp_buf, resp_size, 0) != resp_size)
 	{
@@ -190,19 +196,19 @@ int send_bad_request_response(int client_socket) {
 	return 0;
 }
 
-int init_liso_storage() {
-	// initialise LISO path
-	if(readlink("/proc/self/exe", LISO_PATH, PATH_MAX)) {
-		perror("readlink");
-		return LISO_LOAD_FAILED;
-	} else {
-		LISOPRINTF("absolute path of liso is %s", LISO_PATH);
-		snprintf(LISO_PATH + strlen(LISO_PATH), PATH_MAX - strlen(LISO_PATH), "/%s/", "static_site");
-		LISOPRINTF("final storage path is %s")
-	}
+// int init_liso_storage() {
+// 	// initialise LISO path
+// 	if(readlink("/proc/self/exe", LISO_PATH, PATH_MAX)) {
+// 		perror("readlink");
+// 		return LISO_LOAD_FAILED;
+// 	} else {
+// 		LISOPRINTF("absolute path of liso is %s", LISO_PATH);
+// 		snprintf(LISO_PATH + strlen(LISO_PATH), PATH_MAX - strlen(LISO_PATH), "/%s/", "static_site");
+// 		LISOPRINTF("final storage path is %s")
+// 	}
 
-	return LISO_SUCCESS;
-}
+// 	return LISO_SUCCESS;
+// }
 
 /**
  * @brief Main driver function for LISO
@@ -225,9 +231,9 @@ int main(int argc, char* argv[])
 
 
 	// get listen port from command line arguments
-	if(argc < 2) {
+	if(argc < 6) {
 		fprintf(stderr, "Invalid arguments.\n");
-		fprintf(stderr, "Usage ./lisod <port>\n");
+		fprintf(stderr, "Usage ./lisod <HTTP port> <log file> <lock file> <www folder> <CGI script path>\n");
 		return -1;
 	}
 	int listen_port = atoi(argv[1]);
@@ -237,11 +243,20 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	if(init_liso_storage() != LISO_SUCCESS) {
-		// storage init fail
-		LISOPRINTF("Liso storage init failed");
-		return -1;
-	}
+	strncpy(LISO_PATH, argv[4], strlen(argv[4]) +1);
+	LISOPRINTF("lisopath given is %s\n", LISO_PATH);
+	// LISOPRINTF("argv 0 %s\n", argv[0]);
+	// LISOPRINTF("argv 1 %s\n", argv[1]);
+	// LISOPRINTF("argv 2 %s\n", argv[2]);
+	// LISOPRINTF("argv 3 %s\n", argv[3]);
+	// LISOPRINTF("argv 4 %s\n", argv[4]);
+	// LISOPRINTF("argv 5 %s\n", argv[5]);
+	// LISOPRINTF("argv 6 %s\n", argv[6]);
+	// if(init_liso_storage() != LISO_SUCCESS) {
+	// 	// storage init fail
+	// 	LISOPRINTF("Liso storage init failed");
+	// 	return -1;
+	// }
 
 	// initialize file descriptor set for select
 	fd_set master_set;	// master file descriptor list
@@ -285,6 +300,8 @@ int main(int argc, char* argv[])
 						// successfully accepted a new connection, add it to
 						// and master set
 						LISOPRINTF("accepted a new connection\n");
+						setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (int[]){1}, sizeof(int));
+
 						if(client_sock > fdrange) {
 							fdrange = client_sock;
 						}
@@ -300,10 +317,16 @@ int main(int argc, char* argv[])
 						// handle data from client
 						if((req = handle_rx(buf, readret)) == NULL) {
 							// request is malformed
+							LISOPRINTF("request is malformed\n");
 							send_bad_request_response(i);
 						} else {
+							LISOPRINTF("request is good and will be parsed\n");
 							generate_and_send_reply(i, req, buf, readret);
 						}
+
+						free(req->headers);
+						free(req);
+
 					} else {
 						// client connection closed
 						close_socket(i);

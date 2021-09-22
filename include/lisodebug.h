@@ -12,12 +12,16 @@
 #ifndef _LISODEBUG_H_
 #define _LISODEBUG_H_
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 /* Define LISODEBUG to enable debug messages for this liso server */
-//#define LISODEBUG
+#define LISODEBUG
 #ifdef LISODEBUG
 #include <stdio.h>
 #define LISOPRINTF(...) printf(__VA_ARGS__)
-int yydebug = STDOUT_FILENO;
+// int yydebug = STDOUT_FILENO;
 #else
 #define LISOPRINTF(...)
 #endif

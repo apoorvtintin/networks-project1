@@ -43,6 +43,8 @@ typedef struct {
 	int header_allocated;
 	int message_len;
 	char *message;
+
+	int error;
 } Response;
 
 Request* parse(char *buffer, int size,int socketFd);
