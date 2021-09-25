@@ -33,6 +33,8 @@ typedef struct
 	char http_uri[4096];
 	Http_header *headers;
 	int header_count;
+
+	int request_len;
 } Request;
 
 typedef struct {

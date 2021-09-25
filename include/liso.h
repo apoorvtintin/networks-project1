@@ -7,7 +7,7 @@
 #include <strings.h>
 
 // MACROS
-#define BUF_SIZE 4096				// size of Liso Buffer 
+
 #define BAD_REQUEST_SIZE 28			// size of a bad request error 400
 #define PATH_MAX 4096
 
@@ -20,9 +20,13 @@ enum liso_errors {
 	LISO_TIMEOUT =4,
 	LISO_BAD_VERSION_NUMBER=5,
 	LISO_BAD_REQUEST =6,
+	LISO_CLOSE_CONN =7,
 };
 
 char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size);
-char* generate_error(int error, int *resp_size);
+char* generate_error(int error, int *resp_size, Request *req);
+int get_full_request_len(Request *req);
+int get_conn_header(Request *req);
+int sanity_check(Request *req);
 
 #endif // _LISO_H_

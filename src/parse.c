@@ -29,8 +29,9 @@ Request * parse(char *buffer, int size, int socketFd) {
 	int i = 0, state;
 	size_t offset = 0;
 	char ch;
-	char buf[8192];
-	memset(buf, 0, 8192);
+	// char buf[8192];
+	char* buf = malloc(size);
+	memset(buf, 0, size);
 
 	state = STATE_START;
 	while (state != STATE_CRLFCRLF) {
@@ -68,6 +69,7 @@ Request * parse(char *buffer, int size, int socketFd) {
 
 		Request *request = (Request *) malloc(sizeof(Request));
         request->header_count=0;
+		request->request_len=i;
         //TODO You will need to handle resizing this in parser.y
         request->headers = (Http_header *) malloc(sizeof(Http_header));
 
@@ -75,6 +77,7 @@ Request * parse(char *buffer, int size, int socketFd) {
 		set_parsing_options(buf, i, request);
 
 		if (yyparse() == SUCCESS) {
+			free(buf);
             return request;
 		}
 
@@ -82,6 +85,7 @@ Request * parse(char *buffer, int size, int socketFd) {
 	}
 
     LISOPRINTF("Parsing Failed\n");
+	free(buf);
 	return NULL;
 }
 

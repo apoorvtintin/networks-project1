@@ -1,7 +1,19 @@
+/**
+ * @file http.c
+ * @author your name (you@domain.com)
+ * @brief 
+ * @version 0.1
+ * @date 2021-09-24
+ * 
+ * @copyright Copyright (c) 2021
+ * 
+ */
+
 #include "liso.h"
 #include "sys/stat.h"
 #include <stdio.h>
 #include <time.h>
+#include "list.h"
 
 #define SIZE_STRING_BUF_SIZE 50
 
@@ -24,9 +36,10 @@ const char MIME_HEADER[] = {"Content-Type"};
 const char CONTENT_LEN_HEADER[] = {"Content-Length"};
 const char DATE_HEADER[] = {"Date"};
 const char LAST_MODIFIED_HEADER[] = {"Last-Modified"};
-const char CONNECTION_HEADER[] = {"Conenction"};
+const char CONNECTION_HEADER[] = {"Connection"};
 
 const char CLOSE[] = {"close"};
+const char KEEP_ALIVE[] = {"keep-alive"};
 
 /**
  * JPEG: image/jpeg
@@ -59,14 +72,14 @@ const char* const MIME[] =  {"image/jpeg",
 							"text/plain",
 							0};
 
-const char* const TYPES[] = {"jpeg",
-							"gif",
-							"png",
-							"js",
-							"json",
-							"css",
-							"html",
-							"txt",
+const char* const TYPES[] = {".jpeg",
+							".gif",
+							".png",
+							".js",
+							".json",
+							".css",
+							".html",
+							".txt",
 							0};
 
 const int MIME_NUM_TYPES = 8;
@@ -154,19 +167,19 @@ int add_mime_extension(char *path, Response *resp) {
 
 	char extension[10];
 	strncpy(extension, pch, 10);
+	LISOPRINTF("extension is %s", extension);
 
 	for(int i = 0; TYPES[i] != NULL; i++) {
 		if(strncasecmp(extension, TYPES[i], strlen(TYPES[i])) == 0) {
 			// matching MIME extension found
 			return add_header(resp, MIME_HEADER, MIME[i]);
-			
 		}
 	}
 
 	return add_header(resp, MIME_HEADER, Non_descript_data_MIME);
 }
 
-int generate_error_response(Response *resp, int error) {
+int generate_error_response(Request *req, Response *resp, int error) {
 
 	assert(resp != NULL);
 
@@ -187,10 +200,15 @@ int generate_error_response(Response *resp, int error) {
 	strncpy(resp->http_version, version, strlen(version) + 1);
 	LISOPRINTF("Length of:+%s+ is %ld", version, strlen(version) + 1);
 
-	add_header(resp, CONNECTION_HEADER, CLOSE);
+	// add connection header
+	if((req != NULL && get_conn_header(req) == LISO_CLOSE_CONN) || error == LISO_TIMEOUT) {
+		add_header(resp, CONNECTION_HEADER, CLOSE);
+	} else {
+		add_header(resp, CONNECTION_HEADER, KEEP_ALIVE);
+	}
 	// add server name
 	add_header(resp, SERVER_HEADER, LISO_NAME);
-
+	add_content_length(resp, 0);
 	// add date
 	add_time(resp);
 
@@ -286,11 +304,53 @@ int load_uri(Request *req, Response *resp) {
 
 	fclose(fp);
 
-	
+	add_mime_extension(path, resp);
 	add_content_length(resp, sfile.st_size);
 	add_last_modified(resp, &sfile.st_mtim);
 
 	return LISO_SUCCESS;
+}
+
+int get_header_index(Http_header *header, const char* header_name, int header_count) {
+
+	int index;
+	for(index = 0; index < header_count; index++) {
+		if(strncasecmp(header[index].header_name, header_name, strlen(header_name)) == 0) {
+			LISOPRINTF("%s found content lenght \n", __func__);
+			return index;
+		}
+	}
+
+	return LISO_ERROR;
+}
+
+int get_full_request_len(Request *req) {
+
+	int total_len = 0;
+	assert(req != NULL);
+
+	int index = get_header_index(req->headers, CONTENT_LEN_HEADER, req->header_count);
+
+	if(index != LISO_ERROR) {
+		total_len += atoi(req->headers[index].header_value);
+	}
+
+	total_len+=req->request_len;
+
+	return total_len;
+}
+
+int get_conn_header(Request *req) {
+	int res = LISO_SUCCESS;
+	int index = get_header_index(req->headers, CONNECTION_HEADER, req->header_count);
+
+	if(index != LISO_ERROR) {
+		if(strncasecmp(req->headers[index].header_value, CLOSE, strlen(CLOSE)) == 0)  {
+			res = LISO_CLOSE_CONN;
+		}
+	}
+
+	return res;
 }
 
 Response* process_get(Request *req) {
@@ -307,8 +367,15 @@ Response* process_get(Request *req) {
 	LISOPRINTF(" %s http req uri %s\n", __func__, req->http_uri );
 	error = load_uri(req, resp);
 	if(error != LISO_SUCCESS) {
-		int err_err = generate_error_response(resp, error);
+		int err_err = generate_error_response(req, resp, error);
 		assert(err_err == LISO_SUCCESS);
+	}
+
+	// add connection header
+	if(get_conn_header(req) == LISO_CLOSE_CONN) {
+		add_header(resp, CONNECTION_HEADER, CLOSE);
+	} else {
+		add_header(resp, CONNECTION_HEADER, KEEP_ALIVE);
 	}
 
 	return resp;
@@ -331,12 +398,13 @@ int process_post(int client_socket, Request *req, char *buf, int bufsize) {
 	return 0;
 }
 
-Response* process_error(int error) {
+Response* process_error(int error, Request *req) {
 	Response *resp = malloc(sizeof(Response));
+	resp->headers = NULL;
 
 	assert(resp != NULL);
 
-	int err = generate_error_response(resp, error);
+	int err = generate_error_response(req, resp, error);
 	assert(err == LISO_SUCCESS);
 	return resp;
 }
@@ -372,6 +440,8 @@ char* convert_response_to_byte_stream(Response *resp, int *bufsize) {
 
 		memcpy(resp_buf + count, resp->message, resp->message_len);
 		count += resp->message_len;
+
+		free(resp->message);
 	}
 
 	free(resp->headers);
@@ -381,8 +451,8 @@ char* convert_response_to_byte_stream(Response *resp, int *bufsize) {
 	return resp_buf;
 }
 
-char* generate_error(int error, int *resp_size) {
-	Response *resp = process_error(error);
+char* generate_error(int error, int *resp_size, Request *req) {
+	Response *resp = process_error(error, req);
 
 	// convert to char array and return char* buffer
 	return convert_response_to_byte_stream(resp, resp_size);
@@ -396,7 +466,7 @@ char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size) {
 	if(strncasecmp(req->http_method, GET, strlen(GET)) == 0) {
 		LISOPRINTF("%s Processing Get \n", __func__);
 		resp = process_get(req);
-	} else if(strncasecmp(req->http_method, HEAD, strlen(HEAD) == 0)) {
+	} else if(strncasecmp(req->http_method, HEAD, strlen(HEAD)) == 0) {
 		LISOPRINTF("%s Processing HEAD \n", __func__);
 		resp = process_head(req);
 	} else if (strncasecmp(req->http_method, POST, strlen(POST)) == 0) {
@@ -406,10 +476,26 @@ char* generate_reply(Request *req, char *buf, int bufsize, int *resp_size) {
 		return buf;
 	} else {
 		// invalid request
-		resp = process_error(LISO_UNSUPPORTED_METHOD);
+		resp = process_error(LISO_UNSUPPORTED_METHOD, req);
 	}
 
 	// convert to char array and return char* buffer
 	return convert_response_to_byte_stream(resp, resp_size);
 
+}
+
+/**
+ * @brief 
+ * 
+ * @param req 
+ * @return ** int 
+ */
+int sanity_check(Request *req) {
+	// check version
+	if(strncasecmp(req->http_version, version, strlen(version + 1)) != 0) {
+		LISOPRINTF("req method rx %s matching with %s failed \n", req->http_method, version);
+		return LISO_BAD_VERSION_NUMBER;
+	}
+
+	return LISO_SUCCESS;
 }

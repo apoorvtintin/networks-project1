@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 /* Define LISODEBUG to enable debug messages for this liso server */
-#define LISODEBUG
+// #define LISODEBUG
 #ifdef LISODEBUG
 #include <stdio.h>
 #define LISOPRINTF(...) printf(__VA_ARGS__)

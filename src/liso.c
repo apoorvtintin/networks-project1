@@ -24,8 +24,12 @@
 #include "liso.h"
 #include "parse.h"
 #include <netinet/tcp.h>
+#include "list.h"
+#include <stdbool.h>
+#include <signal.h>
 
 char LISO_PATH[1024];
+extern const char CONTENT_LEN_HEADER[];
 
 /**
  * @brief Print buffer
@@ -61,6 +65,89 @@ int close_socket(int sock)
     return 0;
 }
 
+int add_new_client(int client_sock) {
+	client *c = malloc(sizeof(client));
+	if(c == NULL) {
+		return LISO_MEM_FAIL;
+	}
+	c->sock = client_sock;
+	c->pipeline_flag = false;
+	add_client(c);
+
+	return LISO_SUCCESS;
+}
+
+/**
+ * @brief generate reply for the request recieved and send appropriate 
+ * response
+ * 
+ * @param client_socket socket of the client that sent the request
+ * @param req Populated request with parsed values
+ * @param buf reauest buffer
+ * @param bufsize reauest buffer size
+ * @return ** int 0 on success, nonzero otherwise 
+ */
+int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
+	LISOPRINTF("Processing request \n");
+	print_req_buf(buf, bufsize);
+
+	int resp_size;
+	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);
+
+	// sending reply
+	LISOPRINTF("Sending reply \n");
+	print_req_buf(resp_buf, resp_size);
+	
+	if (send(client_socket, resp_buf, resp_size, 0) != resp_size)
+	{
+		fprintf(stderr, "Error sending to client.\n");
+		perror("send recieved an error");
+		free(resp_buf);
+		return -1;
+	}
+
+	if(resp_buf != buf) { // TODO REMOVE WHEN IMPLEMENTING POST
+		free(resp_buf);
+	}
+	return 0;
+}
+
+/**
+ * @brief send a error 400 malformed request
+ * 
+ * @param client_socket socket to send response at
+ * @return ** int 0 on success, nonzero otherwise
+ */
+int send_error_response(int client_socket, int error, Request *req) {
+
+	int resp_size;
+	char* bad_request = generate_error(error, &resp_size, req);
+
+	LISOPRINTF(" error response for socket %d\n", client_socket);
+	print_req_buf(bad_request, resp_size);
+	if (send(client_socket, bad_request, resp_size, 0) < 0) {
+		
+		fprintf(stderr, "Error sending to client.\n");
+		LISOPRINTF("sent bad request\n");
+		free(bad_request);
+		return -1;
+	}
+	free(bad_request);
+	return 0;
+}
+
+void print_parse_req(Request *request) {
+	//Print the parsed request for DEBUG
+	LISOPRINTF("Http Method %s\n",request->http_method);
+	LISOPRINTF("Http Version %s\n",request->http_version);
+	LISOPRINTF("Http Uri %s\n",request->http_uri);
+	LISOPRINTF("number of Request Headers %d\n", request->header_count);
+	for(int index = 0;index < request->header_count;index++){
+		LISOPRINTF("Request Header\n");
+		LISOPRINTF("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+	}
+}
+
 /**
  * @brief Handle a received packet
  * 
@@ -68,37 +155,102 @@ int close_socket(int sock)
  * @param bufsize size data in the buffer
  * @return ** int >= 0 on success negative otherwise 
  */
-Request* handle_rx(char *buf, int bufsize) {
+int handle_rx(int client_socket) {
 
-	if(buf == NULL || bufsize <= 0)  {
-		// invalid arguments
-		return NULL;
+	client *c = search_client(client_socket);
+	assert(c != NULL);
+
+	char* buf = malloc(BUF_SIZE);
+	if(buf == NULL) {
+		return LISO_MEM_FAIL;
 	}
 
-	LISOPRINTF("Printing whole request \n");
-	print_req_buf(buf, bufsize);
+	int alloc_count = 1;
+	int read_count = 0;
+	int readret;
 
-	int index;
-	//Parse the buffer to the parse function.
-	Request *request = parse(buf,bufsize,0);
+	do {
+		readret = recv(client_socket, buf + read_count, BUF_SIZE, 0);
+		read_count += readret;
 
-	if(request == NULL) {
-		// parsing failed
-		return NULL;
+		if(readret >= BUF_SIZE) {
+			// reallocate and try to read everything in the socket
+			alloc_count++;
+			LISOPRINTF("reallocating buffer to size %d \n", BUF_SIZE * alloc_count);
+			buf = realloc(buf, BUF_SIZE * alloc_count);
+			assert(buf != NULL);
+		}
+
+	} while(readret >= BUF_SIZE); // no more data in the socket
+
+	if(read_count <= 0) {
+		free(buf);
+		return LISO_CLOSE_CONN;
 	}
 
-	// //Print the parsed request for DEBUG
-	// LISOPRINTF("Http Method %s\n",request->http_method);
-	// LISOPRINTF("Http Version %s\n",request->http_version);
-	// LISOPRINTF("Http Uri %s\n",request->http_uri);
-	// LISOPRINTF("number of Request Headers %d\n", request->header_count);
-	// for(index = 0;index < request->header_count;index++){
-	// 	LISOPRINTF("Request Header\n");
-	// 	LISOPRINTF("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
-	// }
+	int cur_to_end_size = read_count;
+	bool pipelined;
+	char* cur_buf = buf;
+	int conn_close = LISO_SUCCESS;
+	LISOPRINTF("Printing whole request(s) \n");
+	print_req_buf(buf, read_count);
+
+	int req_counter = 0;
+	do { // respond to all pipelined requests in buffer
+		req_counter++;
+		pipelined = false;
+		assert(cur_to_end_size > 0);
+		// we have all the data that the buffer had 
+		//Parse the buffer to the parse function.
+		Request *req = parse(cur_buf,cur_to_end_size,0);
+
+		// handle data from client
+		if(req == NULL) {
+			// request is malformed
+			LISOPRINTF("request is malformed\n");
+			send_error_response(client_socket, LISO_BAD_REQUEST, req);
+			conn_close = LISO_SUCCESS;
+			break;
+		}
+
+		int error = sanity_check(req);
+		int rlen = get_full_request_len(req);
+
+		if(error != LISO_SUCCESS) {
+			send_error_response(client_socket, error, req);
+		} else {
+
+			LISOPRINTF("request is good and will be parsed\n");
+			generate_and_send_reply(client_socket, req, buf, rlen);
+		}
+
+		if(get_conn_header(req) == LISO_CLOSE_CONN) {
+			LISOPRINTF("GOt connection close for req number %d", req_counter);
+			conn_close = LISO_CLOSE_CONN;
+			free(req->headers);
+			free(req);
+			break;
+		}
+
+		// check if requests are pipelined
+
+		if(rlen < cur_to_end_size) {
+			// we have pipelined requests handle them
+			pipelined = true;
+			cur_to_end_size = cur_to_end_size - rlen;
+			cur_buf = cur_buf + rlen;
+			LISOPRINTF("Processing another pipelined request cur_to_end_size %d rlen %d, parse len %d\n" ,cur_to_end_size, rlen, req->request_len);
+		}
+
+		free(req->headers);
+		free(req);
+
+		LISOPRINTF("Processed %d pipelined requests", req_counter);
+	} while(pipelined == true);
 
 	// SUCCESS
-	return request;
+	free(buf);
+	return conn_close;
 }
 
 /**
@@ -145,57 +297,6 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
 	return listen_sock;
 }
 
-
-
-/**
- * @brief generate reply for the request recieved and send appropriate 
- * response
- * 
- * @param client_socket socket of the client that sent the request
- * @param req Populated request with parsed values
- * @param buf reauest buffer
- * @param bufsize reauest buffer size
- * @return ** int 0 on success, nonzero otherwise 
- */
-int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
-	LISOPRINTF("Processing request \n");
-	print_req_buf(buf, bufsize);
-
-	int resp_size;
-	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);
-
-	// sending reply
-	LISOPRINTF("Sending reply \n");
-	print_req_buf(resp_buf, resp_size);
-	
-	if (send(client_socket, resp_buf, resp_size, 0) != resp_size)
-	{
-		fprintf(stderr, "Error sending to client.\n");
-		return -1;
-	}
-	return 0;
-}
-
-/**
- * @brief send a error 400 malformed request
- * 
- * @param client_socket socket to send response at
- * @return ** int 0 on success, nonzero otherwise
- */
-int send_bad_request_response(int client_socket) {
-
-	int resp_size;
-	char* bad_request = generate_error(LISO_BAD_REQUEST, &resp_size);
-
-	if (send(client_socket, bad_request, resp_size, 0) < 0) {
-		
-		fprintf(stderr, "Error sending to client.\n");
-		LISOPRINTF("sent bad request\n");
-		return -1;
-	}
-	return 0;
-}
-
 // int init_liso_storage() {
 // 	// initialise LISO path
 // 	if(readlink("/proc/self/exe", LISO_PATH, PATH_MAX)) {
@@ -223,12 +324,12 @@ int main(int argc, char* argv[])
 {
 	// declarations
     int listen_sock, client_sock;
-    ssize_t readret;
     socklen_t cli_size;
     struct sockaddr_in addr, cli_addr;
     char buf[BUF_SIZE];
-	Request *req;
 
+	// install sigpipe handler
+	sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL);
 
 	// get listen port from command line arguments
 	if(argc < 6) {
@@ -268,13 +369,18 @@ int main(int argc, char* argv[])
 	FD_SET(listen_sock, &master_set);
 	fdrange = listen_sock;
 
+
+
 	// Main Server Loop
 	while(1) {
 
+		// set up select time out
+		struct timeval timeout;
+		timeout.tv_sec = 10;
 		// copy master set to temporary set
 		tenp_set = master_set;
 
-		if(select(fdrange+1, &tenp_set, NULL, NULL, NULL) == -1) {
+		if(select(fdrange+1, &tenp_set, NULL, NULL, &timeout) == -1) {
 			// select failed
 			fprintf(stderr,"select call failed\n");
 			close_socket(listen_sock);
@@ -300,7 +406,8 @@ int main(int argc, char* argv[])
 						// successfully accepted a new connection, add it to
 						// and master set
 						LISOPRINTF("accepted a new connection\n");
-						setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (int[]){1}, sizeof(int));
+
+						add_new_client(client_sock);
 
 						if(client_sock > fdrange) {
 							fdrange = client_sock;
@@ -310,33 +417,32 @@ int main(int argc, char* argv[])
 					}
 				} else  {
 					// new data from an existing client
-					readret = 0;
-
-					if((readret = recv(i, buf, BUF_SIZE, 0)) >= 1)
-					{
-						// handle data from client
-						if((req = handle_rx(buf, readret)) == NULL) {
-							// request is malformed
-							LISOPRINTF("request is malformed\n");
-							send_bad_request_response(i);
-						} else {
-							LISOPRINTF("request is good and will be parsed\n");
-							generate_and_send_reply(i, req, buf, readret);
-						}
-
-						free(req->headers);
-						free(req);
-
-					} else {
+					if(handle_rx(i) == LISO_CLOSE_CONN) {
 						// client connection closed
 						close_socket(i);
 						FD_CLR(i, &master_set);
+						client *c = search_client(i);
+						delete_client(c);
+						free(c);
+						LISOPRINTF("closed connection %d\n", i);
 					}
 
 					memset(buf, 0, BUF_SIZE);
 				}
 			}
 		}
+
+		// check for timed out sockets
+		LISOPRINTF("going to check for timeouts\n");
+		client *timeout_client;
+		while((timeout_client = check_timeout()) != NULL) {
+			send_error_response(timeout_client->sock, LISO_TIMEOUT, NULL);
+			close_socket(timeout_client->sock);
+			FD_CLR(timeout_client->sock, &master_set);
+			LISOPRINTF("timeeout for socket %d\n", timeout_client->sock);
+			free(timeout_client);
+		}
+
 	}
 
 	close_socket(listen_sock);
