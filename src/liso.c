@@ -9,12 +9,18 @@
  * the HTTP request and populate internal LISO request fields with Requests
  * and headers. LISO replies to invalid malformed requests appropriately.
  * 
+ * Liso runs as deamon and has a lockfile which allows only one deamon to run
+ * at a time. CGI is also supported and can be accessed with /cgi/ in URI
+ * 
  * @version 0.1
  * @date 2021-09-08
  * 
  */
 
-#include <netinet/in.h>
+#include <fcntl.h>
+#include <syslog.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/ip.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,8 +34,12 @@
 #include <stdbool.h>
 #include <signal.h>
 
+// GLOBALS
 char LISO_PATH[1024];
 extern const char CONTENT_LEN_HEADER[];
+FILE *fp;
+char lock_file[1024];
+char cgi_script[BUF_SIZE];
 
 /**
  * @brief Print buffer
@@ -38,15 +48,17 @@ extern const char CONTENT_LEN_HEADER[];
  * @param len length of the buffer
  * @return ** void 
  */
-void print_req_buf(char *buf, int len) {
-	if(buf == NULL) {
+void print_req_buf(char *buf, int len)
+{
+	if (buf == NULL)
+	{
 		return;
 	}
-	LISOPRINTF("printing buffer of size %d\n", len);
+	LISOPRINTF(fp, "printing buffer of size %d\n", len);
 #ifdef LISODEBUG
-	write(STDOUT_FILENO, buf, len);
+	fwrite(buf, 1, len, fp);
 #endif
-	LISOPRINTF("\n");
+	LISOPRINTF(fp, "\n");
 }
 
 /**
@@ -57,21 +69,36 @@ void print_req_buf(char *buf, int len) {
  */
 int close_socket(int sock)
 {
-    if (close(sock))
-    {
-        fprintf(stderr, "Failed closing socket.\n");
-        return 1;
-    }
-    return 0;
+	if (close(sock))
+	{
+		fprintf(stderr, "Failed closing socket.\n");
+		return 1;
+	}
+	return 0;
 }
 
-int add_new_client(int client_sock) {
+/**
+ * @brief Initialize and add a new client to the client list
+ * 
+ * @param client_sock socket of the client
+ * @param pV4Addr sockaddr structure of the client
+ * @return ** int 
+ */
+int add_new_client(int client_sock, struct sockaddr_in *pV4Addr)
+{
 	client *c = malloc(sizeof(client));
-	if(c == NULL) {
+	if (c == NULL)
+	{
 		return LISO_MEM_FAIL;
 	}
 	c->sock = client_sock;
 	c->pipeline_flag = false;
+	c->cgi_host = NULL;
+
+	struct in_addr ipAddr = pV4Addr->sin_addr;
+
+	inet_ntop(AF_INET, &ipAddr, c->remote_address, INET_ADDRSTRLEN);
+	c->port = ntohs(pV4Addr->sin_port);
 	add_client(c);
 
 	return LISO_SUCCESS;
@@ -87,17 +114,18 @@ int add_new_client(int client_sock) {
  * @param bufsize reauest buffer size
  * @return ** int 0 on success, nonzero otherwise 
  */
-int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize) {
-	LISOPRINTF("Processing request \n");
+int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufsize)
+{
+	LISOPRINTF(fp, "Processing request \n");
 	print_req_buf(buf, bufsize);
 
 	int resp_size;
-	char* resp_buf = generate_reply(req, buf, bufsize, &resp_size);
+	char *resp_buf = generate_reply(req, buf, bufsize, &resp_size);
 
 	// sending reply
-	LISOPRINTF("Sending reply \n");
+	LISOPRINTF(fp, "Sending reply \n");
 	print_req_buf(resp_buf, resp_size);
-	
+
 	if (send(client_socket, resp_buf, resp_size, 0) != resp_size)
 	{
 		fprintf(stderr, "Error sending to client.\n");
@@ -106,7 +134,8 @@ int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufs
 		return -1;
 	}
 
-	if(resp_buf != buf) { // TODO REMOVE WHEN IMPLEMENTING POST
+	if (resp_buf != buf)
+	{ // TODO REMOVE WHEN IMPLEMENTING POST
 		free(resp_buf);
 	}
 	return 0;
@@ -118,17 +147,19 @@ int generate_and_send_reply(int client_socket, Request *req, char *buf, int bufs
  * @param client_socket socket to send response at
  * @return ** int 0 on success, nonzero otherwise
  */
-int send_error_response(int client_socket, int error, Request *req) {
+int send_error_response(int client_socket, int error, Request *req)
+{
 
 	int resp_size;
-	char* bad_request = generate_error(error, &resp_size, req);
+	char *bad_request = generate_error(error, &resp_size, req);
 
-	LISOPRINTF(" error response for socket %d\n", client_socket);
+	LISOPRINTF(fp, " error response for socket %d\n", client_socket);
 	print_req_buf(bad_request, resp_size);
-	if (send(client_socket, bad_request, resp_size, 0) < 0) {
-		
+	if (send(client_socket, bad_request, resp_size, 0) < 0)
+	{
+
 		fprintf(stderr, "Error sending to client.\n");
-		LISOPRINTF("sent bad request\n");
+		LISOPRINTF(fp, "sent bad request\n");
 		free(bad_request);
 		return -1;
 	}
@@ -136,15 +167,23 @@ int send_error_response(int client_socket, int error, Request *req) {
 	return 0;
 }
 
-void print_parse_req(Request *request) {
+/**
+ * @brief [DEBUG] print the parsed request from client
+ * 
+ * @param request parsed request from client
+ * @return ** void 
+ */
+void print_parse_req(Request *request)
+{
 	//Print the parsed request for DEBUG
-	LISOPRINTF("Http Method %s\n",request->http_method);
-	LISOPRINTF("Http Version %s\n",request->http_version);
-	LISOPRINTF("Http Uri %s\n",request->http_uri);
-	LISOPRINTF("number of Request Headers %d\n", request->header_count);
-	for(int index = 0;index < request->header_count;index++){
-		LISOPRINTF("Request Header\n");
-		LISOPRINTF("Header name %s Header Value %s\n",request->headers[index].header_name,request->headers[index].header_value);
+	LISOPRINTF(fp, "Http Method %s\n", request->http_method);
+	LISOPRINTF(fp, "Http Version %s\n", request->http_version);
+	LISOPRINTF(fp, "Http Uri %s\n", request->http_uri);
+	LISOPRINTF(fp, "number of Request Headers %d\n", request->header_count);
+	for (int index = 0; index < request->header_count; index++)
+	{
+		LISOPRINTF(fp, "Request Header\n");
+		LISOPRINTF(fp, "Header name %s Header Value %s\n", request->headers[index].header_name, request->headers[index].header_value);
 	}
 }
 
@@ -155,59 +194,77 @@ void print_parse_req(Request *request) {
  * @param bufsize size data in the buffer
  * @return ** int >= 0 on success negative otherwise 
  */
-int handle_rx(int client_socket) {
+int handle_rx(int client_socket, int *pipefd)
+{
 
 	client *c = search_client(client_socket);
 	assert(c != NULL);
 
-	char* buf = malloc(BUF_SIZE);
-	if(buf == NULL) {
-		return LISO_MEM_FAIL;
+	if (c->cgi_host != NULL)
+	{
+		// this is a cgi response from script
+		wrap_process_cgi(c);
+		return LISO_CGI_END;
 	}
 
+	char *buf;
 	int alloc_count = 1;
 	int read_count = 0;
 	int readret;
+	*pipefd = -1;
 
-	do {
+	buf = malloc(BUF_SIZE);
+	if (buf == NULL)
+	{
+		return LISO_MEM_FAIL;
+	}
+
+	// read everything in OS socket buffer
+	do
+	{
 		readret = recv(client_socket, buf + read_count, BUF_SIZE, 0);
 		read_count += readret;
 
-		if(readret >= BUF_SIZE) {
+		if (readret >= BUF_SIZE)
+		{
 			// reallocate and try to read everything in the socket
 			alloc_count++;
-			LISOPRINTF("reallocating buffer to size %d \n", BUF_SIZE * alloc_count);
+			LISOPRINTF(fp, "reallocating buffer to size %d \n", BUF_SIZE * alloc_count);
 			buf = realloc(buf, BUF_SIZE * alloc_count);
 			assert(buf != NULL);
 		}
 
-	} while(readret >= BUF_SIZE); // no more data in the socket
+	} while (readret >= BUF_SIZE); // no more data in the socket
 
-	if(read_count <= 0) {
+	if (read_count <= 0)
+	{
 		free(buf);
 		return LISO_CLOSE_CONN;
 	}
 
+	// begin processing buffer
 	int cur_to_end_size = read_count;
 	bool pipelined;
-	char* cur_buf = buf;
+	char *cur_buf = buf;
 	int conn_close = LISO_SUCCESS;
-	LISOPRINTF("Printing whole request(s) \n");
+	LISOPRINTF(fp, "Printing whole request(s) \n");
 	print_req_buf(buf, read_count);
 
 	int req_counter = 0;
-	do { // respond to all pipelined requests in buffer
+	do
+	{ // respond to all pipelined requests in buffer
 		req_counter++;
 		pipelined = false;
 		assert(cur_to_end_size > 0);
-		// we have all the data that the buffer had 
+		// we have all the data that the buffer had
 		//Parse the buffer to the parse function.
-		Request *req = parse(cur_buf,cur_to_end_size,0);
+		Request *req = parse(cur_buf, cur_to_end_size, 0);
 
 		// handle data from client
-		if(req == NULL) {
+		if (req == NULL)
+		{
 			// request is malformed
-			LISOPRINTF("request is malformed\n");
+			LISOPRINTF(fp, "request is malformed\n");
 			send_error_response(client_socket, LISO_BAD_REQUEST, req);
 			conn_close = LISO_SUCCESS;
 			break;
@@ -216,38 +273,76 @@ int handle_rx(int client_socket) {
 		int error = sanity_check(req);
 		int rlen = get_full_request_len(req);
 
-		if(error != LISO_SUCCESS) {
-			send_error_response(client_socket, error, req);
-		} else {
+		// get content len of request
+		int clen = 0;
+		int index = get_header_index(req->headers, CONTENT_LEN_HEADER, req->header_count);
 
-			LISOPRINTF("request is good and will be parsed\n");
-			generate_and_send_reply(client_socket, req, buf, rlen);
+		if (index != LISO_ERROR)
+		{
+			clen = atoi(req->headers[index].header_value);
 		}
 
-		if(get_conn_header(req) == LISO_CLOSE_CONN) {
-			LISOPRINTF("GOt connection close for req number %d", req_counter);
+		req->message = malloc(clen + 1);
+		memcpy(req->message, cur_buf + rlen, clen);
+		req->message[clen] = '\0';
+		req->message_len = clen;
+
+		// process request
+		if (error != LISO_SUCCESS)
+		{
+			send_error_response(client_socket, error, req);
+		}
+		else
+		{
+
+			LISOPRINTF(fp, "request is good and will be parsed\n");
+			if (req->is_cgi)
+			{
+				// request is dynamic uri
+				*pipefd = start_process_cgi(req, c);
+				conn_close = LISO_CGI_START;
+				free(req->headers);
+				free(req->message);
+				free(req);
+				break;
+				// wrap_process_cgi(*pipefd, client_socket);
+			}
+			else
+			{
+				generate_and_send_reply(client_socket, req, buf, rlen);
+			}
+		}
+
+		if (get_conn_header(req) == LISO_CLOSE_CONN)
+		{
+			LISOPRINTF(fp, "GOt connection close for req number %d", req_counter);
 			conn_close = LISO_CLOSE_CONN;
 			free(req->headers);
+			free(req->message);
 			free(req);
+
 			break;
 		}
 
 		// check if requests are pipelined
 
-		if(rlen < cur_to_end_size) {
+		if (rlen < cur_to_end_size)
+		{
 			// we have pipelined requests handle them
 			pipelined = true;
 			cur_to_end_size = cur_to_end_size - rlen;
 			cur_buf = cur_buf + rlen;
-			LISOPRINTF("Processing another pipelined request cur_to_end_size %d rlen %d, parse len %d\n" ,cur_to_end_size, rlen, req->request_len);
+			LISOPRINTF(fp, "Processing another pipelined request cur_to_end_size %d rlen %d, parse len %d\n", cur_to_end_size, rlen, req->request_len);
 		}
 
 		free(req->headers);
+		free(req->message);
 		free(req);
 
-		LISOPRINTF("Processed %d pipelined requests", req_counter);
-	} while(pipelined == true);
+		LISOPRINTF(fp, "Processed %d pipelined requests", req_counter);
+	} while (pipelined == true);
 
+	reinsert_client(c);
 	// SUCCESS
 	free(buf);
 	return conn_close;
@@ -260,56 +355,107 @@ int handle_rx(int client_socket) {
  * @param addr struct sockaddr_in to be associated with listen_socket
  * @return ** int 0 in success, nonzero otherwise
  */
-int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
+int initialize_listen_socket(int listen_port, struct sockaddr_in *addr)
+{
 
 	int listen_sock;
 
-    /* create our listen socket */
-    if ((listen_sock = socket(PF_INET, SOCK_STREAM, 0)) == -1)
-    {
-        fprintf(stderr, "Failed creating socket.\n");
-        return -1;
-    }
+	/* create our listen socket */
+	if ((listen_sock = socket(PF_INET, SOCK_STREAM, 0)) == -1)
+	{
+		fprintf(stderr, "Failed creating socket.\n");
+		return -1;
+	}
 
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(listen_port);
-    addr->sin_addr.s_addr = INADDR_ANY;
+	addr->sin_family = AF_INET;
+	addr->sin_port = htons(listen_port);
+	addr->sin_addr.s_addr = INADDR_ANY;
 
-	int yes=1;
+	int yes = 1;
 	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 	setsockopt(listen_sock, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(int));
 
-    /* servers bind sockets to ports---notify the OS they accept connections */
-    if (bind(listen_sock, (struct sockaddr*)addr, sizeof(struct sockaddr_in)))
-    {
-        close_socket(listen_sock);
-        fprintf(stderr, "Failed binding socket.\n");
-        return -1;
-    }
+	/* servers bind sockets to ports---notify the OS they accept connections */
+	if (bind(listen_sock, (struct sockaddr *)addr, sizeof(struct sockaddr_in)))
+	{
+		close_socket(listen_sock);
+		fprintf(stderr, "Failed binding socket.\n");
+		return -1;
+	}
 
-    if (listen(listen_sock, 1000))
-    {
-        close_socket(listen_sock);
-        fprintf(stderr, "Error listening on socket.\n");
-        return -1;
-    }
+	if (listen(listen_sock, 1000))
+	{
+		close_socket(listen_sock);
+		fprintf(stderr, "Error listening on socket.\n");
+		return -1;
+	}
 
 	return listen_sock;
 }
 
-// int init_liso_storage() {
-// 	// initialise LISO path
-// 	if(readlink("/proc/self/exe", LISO_PATH, PATH_MAX)) {
-// 		perror("readlink");
-// 		return LISO_LOAD_FAILED;
-// 	} else {
-// 		LISOPRINTF("absolute path of liso is %s", LISO_PATH);
-// 		snprintf(LISO_PATH + strlen(LISO_PATH), PATH_MAX - strlen(LISO_PATH), "/%s/", "static_site");
-// 		LISOPRINTF("final storage path is %s")
-// 	}
+/**
+ * internal signal handler
+ */
+void signal_handler(int sig)
+{
+	switch (sig)
+	{
+	case SIGHUP:
+		/* rehash the server */
+		break;
+	case SIGTERM:
+		killpg(getpid(), SIGTERM);
+		/* finalize and shutdown the server */
+		exit(EXIT_SUCCESS);
+		break;
+	default:
+		break;
+		/* unhandled signal */
+	}
+}
 
-// 	return LISO_SUCCESS;
-// }
+/** 
+ * internal function daemonizing the process
+ */
+int daemonize(char *lock_file)
+{
+	/* drop to having init() as parent */
+	int i, lfp, pid = fork();
+	char str[256] = {0};
+	if (pid < 0)
+		exit(EXIT_FAILURE);
+	if (pid > 0)
+		exit(EXIT_SUCCESS);
+
+	setsid();
+
+	for (i = getdtablesize(); i >= 0; i--)
+		close(i);
+
+	i = open("/dev/null", O_RDWR);
+	dup(i); /* stdout */
+	dup(i); /* stderr */
+	umask(027);
+
+	lfp = open(lock_file, O_RDWR | O_CREAT, 0640);
+
+	if (lfp < 0)
+		exit(EXIT_FAILURE); /* can not open */
+
+	if (lockf(lfp, F_TLOCK, 0) < 0)
+		exit(EXIT_SUCCESS); /* can not lock */
+
+	/* only first instance continues */
+	sprintf(str, "%d\n", getpid());
+	write(lfp, str, strlen(str)); /* record pid to lockfile */
+
+	signal(SIGCHLD, SIG_IGN); /* child terminate signal */
+
+	signal(SIGHUP, signal_handler);	 /* hangup signal */
+	signal(SIGTERM, signal_handler); /* software termination signal from kill */
+
+	return EXIT_SUCCESS;
+}
 
 /**
  * @brief Main driver function for LISO
@@ -320,59 +466,64 @@ int initialize_listen_socket(int listen_port, struct sockaddr_in *addr) {
  * @param argv command line arguments
  * @return ** int 
  */
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
 	// declarations
-    int listen_sock, client_sock;
-    socklen_t cli_size;
-    struct sockaddr_in addr, cli_addr;
-    char buf[BUF_SIZE];
-
-	// install sigpipe handler
-	sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL);
+	int listen_sock, client_sock;
+	socklen_t cli_size;
+	struct sockaddr_in addr, cli_addr;
+	char buf[BUF_SIZE];
 
 	// get listen port from command line arguments
-	if(argc < 6) {
+	if (argc < 6)
+	{
 		fprintf(stderr, "Invalid arguments.\n");
 		fprintf(stderr, "Usage ./lisod <HTTP port> <log file> <lock file> <www folder> <CGI script path>\n");
 		return -1;
 	}
 	int listen_port = atoi(argv[1]);
 
-	if((listen_sock = initialize_listen_socket(listen_port, &addr)) < 0) {
+	strncpy(LISO_PATH, argv[4], strlen(argv[4]) + 1);
+
+	daemonize(argv[3]);
+
+	// initialize logfile
+	fp = fopen(argv[2], "a+");
+	if (fp == NULL)
+	{
+
+		perror("logfile open failed\n");
+	}
+	fflush(stdout);
+	assert(fp != NULL);
+	setvbuf(fp, (char *)NULL, _IONBF, 0);
+	LISOPRINTF(fp, "started in logfile in %s\n", argv[2]);
+	strncpy(cgi_script, argv[5], BUF_SIZE);
+
+	// install sigpipe handler
+	sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL);
+
+	if ((listen_sock = initialize_listen_socket(listen_port, &addr)) < 0)
+	{
 		fprintf(stderr, "Initialize of listen socket failed.\n");
 		return -1;
 	}
 
-	strncpy(LISO_PATH, argv[4], strlen(argv[4]) +1);
-	LISOPRINTF("lisopath given is %s\n", LISO_PATH);
-	// LISOPRINTF("argv 0 %s\n", argv[0]);
-	// LISOPRINTF("argv 1 %s\n", argv[1]);
-	// LISOPRINTF("argv 2 %s\n", argv[2]);
-	// LISOPRINTF("argv 3 %s\n", argv[3]);
-	// LISOPRINTF("argv 4 %s\n", argv[4]);
-	// LISOPRINTF("argv 5 %s\n", argv[5]);
-	// LISOPRINTF("argv 6 %s\n", argv[6]);
-	// if(init_liso_storage() != LISO_SUCCESS) {
-	// 	// storage init fail
-	// 	LISOPRINTF("Liso storage init failed");
-	// 	return -1;
-	// }
+	LISOPRINTF(fp, "lisopath given is %s\n", LISO_PATH);
 
 	// initialize file descriptor set for select
-	fd_set master_set;	// master file descriptor list
-    fd_set tenp_set;	// temp file descriptor list for select()
-	int fdrange;		// maximum file descriptor number
+	fd_set master_set; // master file descriptor list
+	fd_set tenp_set;   // temp file descriptor list for select()
+	int fdrange;	   // maximum file descriptor number
 	FD_ZERO(&master_set);
 	FD_ZERO(&tenp_set);
 	// add it to the master set and set range
 	FD_SET(listen_sock, &master_set);
 	fdrange = listen_sock;
 
-
-
 	// Main Server Loop
-	while(1) {
+	while (1)
+	{
 
 		// set up select time out
 		struct timeval timeout;
@@ -380,51 +531,80 @@ int main(int argc, char* argv[])
 		// copy master set to temporary set
 		tenp_set = master_set;
 
-		if(select(fdrange+1, &tenp_set, NULL, NULL, &timeout) == -1) {
+		if (select(fdrange + 1, &tenp_set, NULL, NULL, &timeout) == -1)
+		{
 			// select failed
-			fprintf(stderr,"select call failed\n");
+			fprintf(stderr, "select call failed\n");
 			close_socket(listen_sock);
 			fprintf(stderr, "Error on select.\n");
 			return EXIT_FAILURE;
 		}
 
 		// iterate over all to see which one has new data
-		for(int i = 0; i < fdrange + 1; i++) {
-			if (FD_ISSET(i, &tenp_set)) {
+		for (int i = 0; i < fdrange + 1; i++)
+		{
+			if (FD_ISSET(i, &tenp_set))
+			{
 				// some activity, check it out
-				
-				if(i == listen_sock) {
+
+				if (i == listen_sock)
+				{
 					// we have a new connection handle it'
 					cli_size = sizeof(cli_addr);
-					if ((client_sock = accept(listen_sock, (struct sockaddr *) &cli_addr,
-												&cli_size)) == -1)
+					if ((client_sock = accept(listen_sock, (struct sockaddr *)&cli_addr,
+											  &cli_size)) == -1)
 					{
 						close(listen_sock);
 						fprintf(stderr, "Error accepting connection.\n");
 						return EXIT_FAILURE;
-					} else {
+					}
+					else
+					{
 						// successfully accepted a new connection, add it to
 						// and master set
-						LISOPRINTF("accepted a new connection\n");
+						LISOPRINTF(fp, "accepted a new connection\n");
+						add_new_client(client_sock, (struct sockaddr_in *)&cli_addr);
 
-						add_new_client(client_sock);
-
-						if(client_sock > fdrange) {
+						if (client_sock > fdrange)
+						{
 							fdrange = client_sock;
 						}
 
 						FD_SET(client_sock, &master_set);
 					}
-				} else  {
+				}
+				else
+				{
+
+					int pipe_fd;
+					int rx_ret = handle_rx(i, &pipe_fd);
 					// new data from an existing client
-					if(handle_rx(i) == LISO_CLOSE_CONN) {
+					if (rx_ret == LISO_CLOSE_CONN)
+					{
 						// client connection closed
+						client *c = search_client(i);
 						close_socket(i);
 						FD_CLR(i, &master_set);
-						client *c = search_client(i);
 						delete_client(c);
 						free(c);
-						LISOPRINTF("closed connection %d\n", i);
+						LISOPRINTF(fp, "closed connection %d\n", i);
+					}
+					else if (rx_ret == LISO_CGI_START)
+					{
+
+						// we have a cgi script running add
+						// pipe to select FDs
+						if (pipe_fd > fdrange)
+						{
+							fdrange = pipe_fd;
+						}
+
+						FD_SET(pipe_fd, &master_set);
+					}
+					else if (rx_ret == LISO_CGI_END)
+					{
+						// cgi script ended remove from select
+						FD_CLR(i, &master_set);
 					}
 
 					memset(buf, 0, BUF_SIZE);
@@ -433,16 +613,16 @@ int main(int argc, char* argv[])
 		}
 
 		// check for timed out sockets
-		LISOPRINTF("going to check for timeouts\n");
+		LISOPRINTF(fp, "going to check for timeouts\n");
 		client *timeout_client;
-		while((timeout_client = check_timeout()) != NULL) {
+		while ((timeout_client = check_timeout()) != NULL)
+		{
 			send_error_response(timeout_client->sock, LISO_TIMEOUT, NULL);
 			close_socket(timeout_client->sock);
 			FD_CLR(timeout_client->sock, &master_set);
-			LISOPRINTF("timeeout for socket %d\n", timeout_client->sock);
+			LISOPRINTF(fp, "timeeout for socket %d\n", timeout_client->sock);
 			free(timeout_client);
 		}
-
 	}
 
 	close_socket(listen_sock);

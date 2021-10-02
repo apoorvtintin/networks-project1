@@ -16,6 +16,8 @@
 #include <unistd.h>
 #include "lisodebug.h"
 
+// extern FILE* fp;
+
 /**
 * Given a char buffer returns the parsed request headers
 */
@@ -77,6 +79,12 @@ Request * parse(char *buffer, int size, int socketFd) {
 		set_parsing_options(buf, i, request);
 
 		if (yyparse() == SUCCESS) {
+			if(strstr(request->http_uri, "/cgi/") != NULL) {
+				request->is_cgi = 1;
+			} else {
+				request->is_cgi = 0;
+			}
+
 			free(buf);
             return request;
 		}
@@ -84,7 +92,7 @@ Request * parse(char *buffer, int size, int socketFd) {
 		yyrestart(NULL);
 	}
 
-    LISOPRINTF("Parsing Failed\n");
+    // LISOPRINTF(fp,"Parsing Failed\n");
 	free(buf);
 	return NULL;
 }

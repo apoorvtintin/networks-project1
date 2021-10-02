@@ -1,44 +1,40 @@
+/**
+ * @file list.c
+ * @author Apoorv Gupta <apoorvgu@andrew.cmu.edu>
+ * 
+ * @brief A simple list for liso that stores a list of clients
+ * it has. The list is ordered with timeout making it easy to find
+ * timed out clients
+ * 
+ * @version 0.1
+ * @date 2021-10-02
+ * 
+ * @copyright Copyright (c) 2021
+ * 
+ */
+
 #include "list.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdbool.h>
 
+// constants
 #define LIST_DEBUG 1
 #define TIMEOUT (10)
 
-client *root = NULL;
-client *end = NULL;
+// globals
+static client *root = NULL;
+static client *end = NULL;
+extern FILE* fp;
 
-bool detect_rep(int socket) {
-#ifdef LIST_DEBUG
-	client *temp = root; 
-
-	while(temp != NULL) {
-		
-		if(temp->sock == socket) {
-			return true;
-		}
-		temp = temp->next;
-	}
-#endif
-	return false;
-}
-
-int count_nodes() {
-	client *temp = root; 
-	int count = 0;
-
-	while(temp != NULL) {
-		temp = temp->next;
-		count++;
-	}
-
-	return count;
-}
-
+/**
+ * @brief Search a client in the list
+ * 
+ * @param socket socket to search for
+ * @return ** client* pointer to client if found, NULL otherwise
+ */
 client* search_client(int socket) {
-	// printf("searching clieet sock %d\n", socket);
 	assert(root != NULL);
 	client *temp = root; 
 
@@ -53,11 +49,15 @@ client* search_client(int socket) {
 	return NULL;
 }
 
+/**
+ * @brief add a client to the list
+ * 
+ * @param c pointer to client to add to the list
+ * @return ** void 
+ */
 void add_client(client *c) {
 	assert(c != NULL);
-	assert(detect_rep(c->sock) == false);
-	// int prev_c = count_nodes();
-	// printf("adding clieet sock %d\n", c->sock);
+
 	c->elapsed = time(NULL);
 	if(root == NULL) {
 		// list empty
@@ -68,23 +68,22 @@ void add_client(client *c) {
 	} else {
 		// list has elements
 		// iterate to last one
-			// client *temp = root; 
-			// root = c;
-			// c->next = temp;
 		end->next = c;
 		c->next = NULL;
 		end = c;
 	}
 
-	// assert(prev_c == count_nodes() -1);
 }
 
+/**
+ * @brief delete a client form the list
+ * 
+ * @param c pointer to client to delete from list
+ * @return ** void 
+ */
 void delete_client(client *c) {
-	// printf("deleting clieet sock %d\n", c->sock);
 	assert(c != NULL);
 	assert(root != NULL);
-
-	// int prev_c = count_nodes();
 
 	client *temp = root; 
 
@@ -113,9 +112,13 @@ void delete_client(client *c) {
 	}
 
 	c->next = NULL;
-	// assert(prev_c == count_nodes() +1);
 }
 
+/**
+ * @brief Check timeout for all clients in the list
+ * 
+ * @return ** client* a client which has timed out
+ */
 client* check_timeout() {
 	
 	client *temp = root; 
@@ -136,6 +139,12 @@ client* check_timeout() {
 	return NULL;
 }
 
+/**
+ * @brief Reinsert client in the list i.e. reset timeout
+ * 
+ * @param c client to reinsert
+ * @return ** void 
+ */
 void reinsert_client(client *c) {
 	delete_client(c);
 	add_client(c);

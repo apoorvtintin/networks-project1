@@ -5,7 +5,7 @@ SRC := $(wildcard $(SRC_DIR)/*.c)
 # all objects
 OBJ := $(OBJ_DIR)/y.tab.o $(OBJ_DIR)/lex.yy.o $(OBJ_DIR)/parse.o $(OBJ_DIR)/example.o
 # objects for building liso
-LISO_OBJ := $(OBJ_DIR)/y.tab.o $(OBJ_DIR)/lex.yy.o $(OBJ_DIR)/parse.o $(OBJ_DIR)/liso.o $(OBJ_DIR)/http.o $(OBJ_DIR)/list.o
+LISO_OBJ := $(OBJ_DIR)/y.tab.o $(OBJ_DIR)/lex.yy.o $(OBJ_DIR)/parse.o $(OBJ_DIR)/liso.o $(OBJ_DIR)/http.o $(OBJ_DIR)/list.o $(OBJ_DIR)/cgi.o
 # all binaries
 BIN := example echo_server echo_client lisod
 # C compiler

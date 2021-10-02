@@ -20,8 +20,7 @@
 // #define LISODEBUG
 #ifdef LISODEBUG
 #include <stdio.h>
-#define LISOPRINTF(...) printf(__VA_ARGS__)
-// int yydebug = STDOUT_FILENO;
+#define LISOPRINTF(...) fprintf(__VA_ARGS__)
 #else
 #define LISOPRINTF(...)
 #endif

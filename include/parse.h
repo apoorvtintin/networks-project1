@@ -34,7 +34,10 @@ typedef struct
 	Http_header *headers;
 	int header_count;
 
+	char* message;
+	int message_len;
 	int request_len;
+	int is_cgi;
 } Request;
 
 typedef struct {
