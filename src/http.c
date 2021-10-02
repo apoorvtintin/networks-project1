@@ -20,6 +20,7 @@
 
 // Globals
 extern FILE* fp;
+extern int freed;
 
 // Constants
 #define SIZE_STRING_BUF_SIZE 50
@@ -427,7 +428,8 @@ int get_http_env(char* env[], Request *req, char remote_address[], int port) {
 	}
 	count++;
 
-	free(env[count]);
+	// free(env[count]);
+	freed = count;
 	env[count] = NULL;
 
 	return LISO_SUCCESS;

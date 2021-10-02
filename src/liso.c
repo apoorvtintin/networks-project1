@@ -41,6 +41,7 @@ FILE *fp;
 char lock_file[1024];
 char cgi_script[BUF_SIZE];
 
+
 /**
  * @brief Print buffer
  * 

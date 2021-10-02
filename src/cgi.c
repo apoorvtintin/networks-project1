@@ -26,6 +26,7 @@
 /**************** BEGIN GLOBALS ***************/
 extern char cgi_script[BUF_SIZE];
 extern FILE* fp;
+int freed = -1;
 /**************** BEGIN GLOBALS ***************/
 
 /**************** BEGIN CONSTANTS ***************/
@@ -218,8 +219,9 @@ int start_process_cgi(Request *req, client *c) {
 
         add_client(cgi_client);
 
-        for(int i = 0; i < ENV_NUM; i++) {
-            free(env[i]);
+        for(int i = 0; i < ENV_NUM -1; i++) {
+            if(freed != i)
+                free(env[i]);
         }
 
 		return stdout_pipe[0];
